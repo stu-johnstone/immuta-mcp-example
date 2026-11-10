@@ -23,6 +23,52 @@ Claude Code
       4. Role is dropped when its TTL expires
 ```
 
+## How it works
+
+Example: Alice, an analyst at a health company, uses a health data agent to query patient data in
+Snowflake. The names are illustrative; see [Values used below](#values-used-below).
+
+```mermaid
+flowchart LR
+    alice["👤 Alice<br/>alice@healthco.com"]
+
+    subgraph client["Alice's machine"]
+        claude["Claude Code<br/>AI agent"]
+        obo["immuta-obo<br/>local MCP server"]
+    end
+
+    subgraph immuta["Immuta"]
+        oboapi["Immuta OBO API"]
+        agent["Agent<br/>HEALTH_DATA_AGENT"]
+        user["User<br/>Alice"]
+    end
+
+    subgraph snowflake["Snowflake"]
+        svc["Service user / SPN<br/>SVC_HEALTH_AGENT"]
+        vended["Vended role<br/>agent ∩ Alice, short TTL"]
+        data[("Health data<br/>masking and row filters")]
+    end
+
+    alice -->|"1. asks a question"| claude
+    claude -->|"2. run_sql"| obo
+    obo -->|"3. on behalf of Alice"| oboapi
+    agent -.-> oboapi
+    user -.-> oboapi
+    oboapi -->|"4. creates role"| vended
+    obo -->|"5. connects with<br/>vended role"| svc
+    svc -->|"6. queries"| data
+```
+
+1. Alice asks the agent a question in Claude Code.
+2. The agent calls `run_sql` on the local `immuta-obo` server.
+3. `immuta-obo` calls the Immuta OBO API with the **agent's** Immuta PAT, on behalf of Alice. Alice
+   is set in config, not by the model.
+4. Immuta creates a short-lived `IMMUTA_VENDED_*` role in Snowflake. It grants only what **both**
+   the agent and Alice can see.
+5. `immuta-obo` connects to Snowflake as the agent's service user (the SPN) with the vended role.
+6. The query runs with Immuta masking and row filters applied. The vended role is dropped when its
+   TTL expires.
+
 ## Prerequisites
 
 - Immuta tenant with Agentic Data Access (OBO) enabled and a Snowflake connection
